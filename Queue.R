@@ -1,3 +1,4 @@
+#Class of Queue used to perform the evolution events 
 Queue <- setRefClass(Class = "Queue",
                      fields = list(
                        name = "character",
