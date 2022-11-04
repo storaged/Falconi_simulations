@@ -11,8 +11,8 @@ generate_child_cell <- function(cell, NO_EXOME_MUT_PER_GEN, EXOM_MUTATION_PROB){
   
   if (number_of_exom_mutations) { 
     return(list(curr_gen = cell$curr_gen + 1, 
-                remaining_evolution_events = 0,
-                next_generation_evolutionary_events = 1,
+                remaining_evolution_events = 2,
+                next_generation_evolutionary_events = 0,
                 mut_moments = c(cell$mut_moments, cell$curr_gen), 
                 total_mut = cell$total_mut + number_of_exom_mutations))
   } else {
@@ -32,57 +32,50 @@ run_simulation <- function(NO_GENERATIONS){
   current_generation <- 1
   
   history <- Queue$new()
+  next_generation <- Queue$new()
   
   number_of_exom_mutations <- rbinom(1, NO_EXOME_MUT_PER_GEN, EXOM_MUTATION_PROB)
   mut_moments <- c()
   if(number_of_exom_mutations) { mut_moments <- 1 }
   history$push(list(curr_gen = 1, 
-                    remaining_evolution_events = 1,
+                    remaining_evolution_events = 2,
                     next_generation_evolutionary_events = 0,
                     mut_moments = ifelse(number_of_exom_mutations, 1, 0), 
                     total_mut = number_of_exom_mutations))
   history$data %>% length
   iter <- 1
   while (current_generation < NO_GENERATIONS) {
-    print(paste0(current_generation, ":",NO_GENERATIONS))
+    print(paste0("generations: peek$curr_gen=", history$peek()$curr_gen, " : curr_gen=",current_generation, " : NO_GEN=", NO_GENERATIONS))
+    print(paste0("rem. evol. ev. = ", history$peek()$remaining_evolution_events))
+    while (!is.null(history$peek())){
     #print(history$peek()$curr_gen)
     #print(current_generation)
-    if( history$peek()$curr_gen == current_generation & history$peek()$remaining_evolution_events == 0) {
-       print(paste0("IF CLAUSE (it:",iter,")",
-                    ", CELL: cell$curr_gen=",history$peek()$curr_gen,
-                    ", current_generation=",history$peek()$current_generation, 
-                    ", cell$rem_events=", history$peek()$remaining_evolution_events,"]"))
-       current_generation <- current_generation + 1
-    } else {
+      current_cell <- history$poll()
       
-      cell <- history$poll()
-      print(paste0("CELL: [",cell$curr_gen,", ",cell$remaining_evolution_events,",","]"))
-      #print(cell)
-      unchanged <- 0
-      for(i in 1:2) {
-        cellA <- generate_child_cell(cell, NO_EXOME_MUT_PER_GEN, EXOM_MUTATION_PROB )
+      print(paste0("(it:",iter,")",
+                   ", CELL: [curr_gen=",current_cell$curr_gen,
+                   ", next_gen_evol_events=",current_cell$next_generation_evolutionary_events, 
+                   ", rem_events=", current_cell$remaining_evolution_events,"]"))
+      while (current_cell$remaining_evolution_events > 0){
+        cellA <- generate_child_cell(current_cell, NO_EXOME_MUT_PER_GEN, EXOM_MUTATION_PROB )
         if(!is.null(cellA)) {
-          history$push(cellA)
+            next_generation$push(cellA)
         }
         else {
-          unchanged <- unchanged + 1
+            current_cell$next_generation_evolutionary_events <- current_cell$next_generation_evolutionary_events + 1
         }
+        current_cell$remaining_evolution_events <- current_cell$remaining_evolution_events - 1
       }
-      if (cell$remaining_evolution_events > 1) {
-        cell$next_generation_evolutionary_events <- cell$next_generation_evolutionary_events + unchanged
-        cell$remaining_evolution_events <- cell$remaining_evolution_events - 1
-        history$push(cell)
-      } else {
-        cell$curr_gen <- cell$curr_gen + 1
-        cell$remaining_evolution_events <- cell$next_generation_evolutionary_events
-        cell$next_generation_evolutionary_events <- 0
-        history$push(cell)
-      }
+      current_cell$remaining_evolution_events <- current_cell$next_generation_evolutionary_events
+      current_cell$next_generation_evolutionary_events <- 0  
+      next_generation$push(current_cell)
     }
+    current_generation <- current_generation + 1
+    history <- next_generation
+    next_generation <- Queue$new()
     iter <- iter + 1
     if (iter > 20) break
   }
-
   history
 }
 
