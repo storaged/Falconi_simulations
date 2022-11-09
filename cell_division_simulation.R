@@ -3,29 +3,26 @@ source("Queue.R")
 
 
 ### CONSTANT VALUES
-GENOME_SIZE <- 6.27 * 10^9
-EXOME_SIZE  <- 10 * 10^6
+GENOME_SIZE <- 3.055 * 10^9
+EXOME_SIZE  <- 40 * 10^6
 
-generate_child_cell <- function(cell, NO_EXOME_MUT_PER_GEN, EXOM_MUTATION_PROB){
-  number_of_exom_mutations <- rbinom(1, NO_EXOME_MUT_PER_GEN, EXOM_MUTATION_PROB)
-  
-  if (number_of_exom_mutations) { 
-    return(list(curr_gen = cell$curr_gen + 1, 
+generate_child_cell <- function(cell, current_generation, number_of_exom_mutations,
+                                cell_ID, NO_EXOME_MUT_PER_GEN, EXOM_MUTATION_PROB){
+    return(list(curr_gen = current_generation, 
                 remaining_evolution_events = 2,
                 next_generation_evolutionary_events = 0,
                 mut_moments = c(cell$mut_moments, cell$curr_gen), 
-                total_mut = cell$total_mut + number_of_exom_mutations))
-  } else {
-    return(NULL)
-  }
+                total_mut = cell$total_mut + number_of_exom_mutations,
+                parent_ID = cell$parent_ID,
+                cell_ID = cell_ID))
 }
 
-run_simulation <- function(NO_GENERATIONS){
+run_simulation <- function(NO_GENERATIONS, debug = F, info = T){
   
   NO_GENOME_MUT_PER_GEN <- 400
   NO_EXOME_MUT_PER_GEN  <- 4
   
-  EXOM_MUTATION_PROB <- 0.0 #NO_EXOME_MUT_PER_GEN / EXOME_SIZE
+  EXOM_MUTATION_PROB <- EXOME_SIZE / GENOME_SIZE
   
   NO_GENERATIONS <- NO_GENERATIONS
 
@@ -41,32 +38,46 @@ run_simulation <- function(NO_GENERATIONS){
                     remaining_evolution_events = 2,
                     next_generation_evolutionary_events = 0,
                     mut_moments = ifelse(number_of_exom_mutations, 1, 0), 
-                    total_mut = number_of_exom_mutations))
+                    total_mut = number_of_exom_mutations,
+                    parent_ID = 0,
+                    cell_ID = 0))
   history$data %>% length
+  
   iter <- 1
+  cell_ID <- 1
   while (current_generation < NO_GENERATIONS) {
-    print(paste0("generations: peek$curr_gen=", history$peek()$curr_gen, " : curr_gen=",current_generation, " : NO_GEN=", NO_GENERATIONS))
-    print(paste0("rem. evol. ev. = ", history$peek()$remaining_evolution_events))
+    if (info) cat(paste0("Generation number: ", current_generation))
+    if (debug) print(paste0("generations: peek$curr_gen=", history$peek()$curr_gen, 
+                 " : current_generation=",current_generation, 
+                 " : NO_GENERATIONS=", NO_GENERATIONS))
+    if (debug) print(paste0("remaining evololution events = ", history$peek()$remaining_evolution_events))
     while (!is.null(history$peek())){
     #print(history$peek()$curr_gen)
     #print(current_generation)
       current_cell <- history$poll()
       
-      print(paste0("(it:",iter,")",
-                   ", CELL: [curr_gen=",current_cell$curr_gen,
-                   ", next_gen_evol_events=",current_cell$next_generation_evolutionary_events, 
-                   ", rem_events=", current_cell$remaining_evolution_events,"]"))
+      if (debug) print(paste0("(it:",iter,")\n",
+                   ", current_cell: [$curr_gen=",current_cell$curr_gen,
+                   ", $next_generation_evolutionary_events=", current_cell$next_generation_evolutionary_events, 
+                   ", $remaining_evolution_events=", current_cell$remaining_evolution_events,"]"))
       while (current_cell$remaining_evolution_events > 0){
-        cellA <- generate_child_cell(current_cell, NO_EXOME_MUT_PER_GEN, EXOM_MUTATION_PROB )
-        if(!is.null(cellA)) {
+        
+        number_of_exom_mutations <- rbinom(1, NO_EXOME_MUT_PER_GEN, EXOM_MUTATION_PROB)
+        
+        if (number_of_exom_mutations) { 
+            cellA <- generate_child_cell(current_cell, current_generation, 
+                                         number_of_exom_mutations, cell_ID, 
+                                         NO_GENOME_MUT_PER_GEN, EXOM_MUTATION_PROB)
             next_generation$push(cellA)
+            cell_ID <- cell_ID + 1
         }
         else {
             current_cell$next_generation_evolutionary_events <- current_cell$next_generation_evolutionary_events + 1
         }
+        
         current_cell$remaining_evolution_events <- current_cell$remaining_evolution_events - 1
       }
-      current_cell$remaining_evolution_events <- current_cell$next_generation_evolutionary_events
+      current_cell$remaining_evolution_events <- 2 * current_cell$next_generation_evolutionary_events
       current_cell$next_generation_evolutionary_events <- 0  
       next_generation$push(current_cell)
     }
@@ -74,15 +85,19 @@ run_simulation <- function(NO_GENERATIONS){
     history <- next_generation
     next_generation <- Queue$new()
     iter <- iter + 1
-    if (iter > 20) break
+    if (debug) if (iter > 20) { print("Breaking."); break }
   }
   history
 }
 
-run_simulation(10) -> simulation_result
-sapply(simulation_result$data, function(cell) 
-  c(cell$curr_gen, cell$total_mut, cell$remaining_evolution_events)
+run_simulation(35, debug = F) -> simulation_result
+res_tab <- sapply(simulation_result$data, function(cell) 
+  c(cell$curr_gen, cell$total_mut, cell$remaining_evolution_events, 
+    cell$parent_ID, cell$cell_ID)
 ) 
+rownames(res_tab) <- c("Current Generation", "Total mutation", "Remaining evolution events", "parent ID", "cell_ID")
+res_tab
+
 
 get_error_var <- function(size = 1000*2^4, sd = .015) {rnorm(size, 0, sd)}
 did_happened <- function(size = 1000*2^4) {sample(c(0,1), size, replace = T)}
