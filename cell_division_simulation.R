@@ -4,7 +4,7 @@ source("Queue.R")
 
 ### CONSTANT VALUES
 GENOME_SIZE <- 3.055 * 10^9
-EXOME_SIZE  <- 40 * 10^6
+EXOME_SIZE  <- 40 * 10^6  
 
 generate_child_cell <- function(cell, current_generation, number_of_exom_mutations,
                                 cell_ID, NO_EXOME_MUT_PER_GEN, EXOM_MUTATION_PROB){
@@ -17,9 +17,9 @@ generate_child_cell <- function(cell, current_generation, number_of_exom_mutatio
                 cell_ID = cell_ID))
 }
 
-run_simulation <- function(NO_GENERATIONS, debug = F, info = T){
+run_simulation <- function(NO_GENERATIONS, NO_GENOME_MUT_PER_GEN = 400, debug = F, info = T){
   
-  NO_GENOME_MUT_PER_GEN <- 400
+  NO_GENOME_MUT_PER_GEN <- NO_GENOME_MUT_PER_GEN
   NO_EXOME_MUT_PER_GEN  <- 4
   
   EXOM_MUTATION_PROB <- EXOME_SIZE / GENOME_SIZE
@@ -62,7 +62,7 @@ run_simulation <- function(NO_GENERATIONS, debug = F, info = T){
                    ", $remaining_evolution_events=", current_cell$remaining_evolution_events,"]"))
       while (current_cell$remaining_evolution_events > 0){
         
-        number_of_exom_mutations <- rbinom(1, NO_EXOME_MUT_PER_GEN, EXOM_MUTATION_PROB)
+        number_of_exom_mutations <- rbinom(1, NO_GENOME_MUT_PER_GEN, EXOM_MUTATION_PROB)
         
         if (number_of_exom_mutations) { 
             cellA <- generate_child_cell(current_cell, current_generation, 
@@ -91,22 +91,37 @@ run_simulation <- function(NO_GENERATIONS, debug = F, info = T){
 }
 
 # 35 is the number of divisions of a newborn
-bootstrapped <- sapply(1:5000, function(i){
-  if (i %% 20 == 0 ) print(paste0("I: ", i))
-run_simulation(12, debug = F, info = F) -> simulation_result
-res_tab <- sapply(simulation_result$data, function(cell) 
-  c(cell$curr_gen, cell$total_mut, cell$remaining_evolution_events, 
-    cell$parent_ID, cell$cell_ID)
-) 
 
-cat(paste0("95% Confidence interval: [", quantile(bootstrapped["Min.",], 0.025), 
+sampling_res <- lapply(c(10,25,50,75,100,125,150,200,250,300), function(mut_per_division){
+  bootstrapped <- sapply(1:100, function(i){
+    
+    if (i %% 50 == 0 ) print(paste0("I: ", i, "Mut.per.div: ", mut_per_division))
+    run_simulation(10, mut_per_division, debug = F, info = F) -> simulation_result
+    res_tab <- sapply(simulation_result$data, function(cell) 
+      c(cell$curr_gen, cell$total_mut, 
+        cell$remaining_evolution_events, 
+        cell$parent_ID, cell$cell_ID)
+    ) 
+    
+    rownames(res_tab) <- c("Current Generation", "Total mutation", 
+                           "Remaining evolution events", 
+                           "parent ID", "cell_ID")
+  
+    c(summary(res_tab["Current Generation", res_tab["Total mutation",] != 0]), mut_per_division=mut_per_division)
+  })
+  
+  data.frame(t(bootstrapped))
+}) %>% do.call(rbind, .)
+
+ggplot(sampling_res, aes(x =  mut_per_division, y = `Min.`, group = mut_per_division)) + 
+  geom_boxplot() + 
+  theme_minimal() + 
+  xlab("Expected number of mutation events in a cell") + 
+  ylab("Expected number of divisions until the first mutation event")
+
+cat(paste0("Divisions until the first mutation: median = ", median(bootstrapped["Min.",]),", 95% Confidence interval: [", quantile(bootstrapped["Min.",], 0.025), 
            ", ", quantile(bootstrapped["Min.",], 0.975), "]"))
 
-rownames(res_tab) <- c("Current Generation", "Total mutation", "Remaining evolution events", "parent ID", "cell_ID")
-res_tab
-
-summary(res_tab["Current Generation", res_tab["Total mutation",] != 0])
-})
 
 
 get_error_var <- function(size = 1000*2^4, sd = .015) {rnorm(size, 0, sd)}
