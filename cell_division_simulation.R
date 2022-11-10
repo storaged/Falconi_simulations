@@ -90,13 +90,23 @@ run_simulation <- function(NO_GENERATIONS, debug = F, info = T){
   history
 }
 
-run_simulation(35, debug = F) -> simulation_result
+# 35 is the number of divisions of a newborn
+bootstrapped <- sapply(1:5000, function(i){
+  if (i %% 20 == 0 ) print(paste0("I: ", i))
+run_simulation(12, debug = F, info = F) -> simulation_result
 res_tab <- sapply(simulation_result$data, function(cell) 
   c(cell$curr_gen, cell$total_mut, cell$remaining_evolution_events, 
     cell$parent_ID, cell$cell_ID)
 ) 
+
+cat(paste0("95% Confidence interval: [", quantile(bootstrapped["Min.",], 0.025), 
+           ", ", quantile(bootstrapped["Min.",], 0.975), "]"))
+
 rownames(res_tab) <- c("Current Generation", "Total mutation", "Remaining evolution events", "parent ID", "cell_ID")
 res_tab
+
+summary(res_tab["Current Generation", res_tab["Total mutation",] != 0])
+})
 
 
 get_error_var <- function(size = 1000*2^4, sd = .015) {rnorm(size, 0, sd)}
