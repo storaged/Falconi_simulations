@@ -6,39 +6,44 @@ source("Queue.R")
 GENOME_SIZE <- 3.055 * 10^9
 EXOME_SIZE  <- 40 * 10^6  
 
-generate_child_cell <- function(cell, current_generation, number_of_exom_mutations,
-                                cell_ID, NO_EXOME_MUT_PER_GEN, EXOM_MUTATION_PROB){
+run_simulation <- function(par_list, 
+                           #NO_GENERATIONS, NO_GENOME_MUT_PER_GEN = 400, 
+                           #ONCOGENES_PERCENT = 0.01, 
+                           debug = F, info = T){
+  
+  source("Queue.R")
+  source("library.R")
+  
+  generate_child_cell <- function(cell, current_generation, number_of_exom_mutations,
+                                  cell_ID){
     return(list(curr_gen = current_generation, 
                 remaining_evolution_events = 2,
                 next_generation_evolutionary_events = 0,
-                mut_moments = c(cell$mut_moments, cell$curr_gen), 
+                mut_moments = ifelse(is.na(cell$mut_moments), 
+                                     cell$curr_gen, 
+                                     c(cell$mut_moments, cell$curr_gen)), 
                 total_mut = cell$total_mut + number_of_exom_mutations,
                 parent_ID = cell$parent_ID,
                 cell_ID = cell_ID))
-}
-
-run_simulation <- function(NO_GENERATIONS, NO_GENOME_MUT_PER_GEN = 400, debug = F, info = T){
+  }
   
-  NO_GENOME_MUT_PER_GEN <- NO_GENOME_MUT_PER_GEN
-  NO_EXOME_MUT_PER_GEN  <- 4
-  
-  EXOM_MUTATION_PROB <- EXOME_SIZE / GENOME_SIZE
-  
-  NO_GENERATIONS <- NO_GENERATIONS
+  NO_GENOME_MUT_PER_GEN <- par_list$NO_GENOME_MUT_PER_GEN
+  ONCO_MUTATION_PROB <- par_list$ONCOGENES_PERCENT * par_list$EXOME_SIZE / par_list$GENOME_SIZE
+  NO_GENERATIONS <- par_list$NO_GENERATIONS
 
   current_generation <- 1
   
   history <- Queue$new()
   next_generation <- Queue$new()
   
-  number_of_exom_mutations <- rbinom(1, NO_EXOME_MUT_PER_GEN, EXOM_MUTATION_PROB)
-  mut_moments <- c()
-  if(number_of_exom_mutations) { mut_moments <- 1 }
+  #number_of_exom_mutations <- rbinom(1, NO_GENOME_MUT_PER_GEN, ONCO_MUTATION_PROB)
+  #mut_moments <- c()
+  #if(number_of_exom_mutations) { mut_moments <- 1 }
   history$push(list(curr_gen = 1, 
                     remaining_evolution_events = 2,
                     next_generation_evolutionary_events = 0,
-                    mut_moments = ifelse(number_of_exom_mutations, 1, 0), 
-                    total_mut = number_of_exom_mutations,
+                    mut_moments = NA, #ifelse(number_of_exom_mutations, 1, 0), 
+                    total_mut = 0, #number_of_exom_mutations,
                     parent_ID = 0,
                     cell_ID = 0))
   history$data %>% length
@@ -62,12 +67,11 @@ run_simulation <- function(NO_GENERATIONS, NO_GENOME_MUT_PER_GEN = 400, debug = 
                    ", $remaining_evolution_events=", current_cell$remaining_evolution_events,"]"))
       while (current_cell$remaining_evolution_events > 0){
         
-        number_of_exom_mutations <- rbinom(1, NO_GENOME_MUT_PER_GEN, EXOM_MUTATION_PROB)
+        number_of_exom_mutations <- rbinom(1, NO_GENOME_MUT_PER_GEN, ONCO_MUTATION_PROB)
         
         if (number_of_exom_mutations) { 
             cellA <- generate_child_cell(current_cell, current_generation, 
-                                         number_of_exom_mutations, cell_ID, 
-                                         NO_GENOME_MUT_PER_GEN, EXOM_MUTATION_PROB)
+                                         number_of_exom_mutations, cell_ID)
             next_generation$push(cellA)
             cell_ID <- cell_ID + 1
         }
@@ -87,12 +91,40 @@ run_simulation <- function(NO_GENERATIONS, NO_GENOME_MUT_PER_GEN = 400, debug = 
     iter <- iter + 1
     if (debug) if (iter > 20) { print("Breaking."); break }
   }
-  history
+  results <- do.call(rbind, history$data)
+  results$NO_GENERATIONS <- par_list$NO_GENERATIONS
+  results$ONCOGENES_PERCENT <- par_list$ONCOGENES_PERCENT
+  results$NO_GENOME_MUT_PER_GEN <- par_list$NO_GENOME_MUT_PER_GEN
+  results$RUN_NUMBER <- par_list$iterations
+  results
 }
+
+cl <- makeCluster(20)
+
+iterations <- 1:100
+oncogene_percent <- seq(0.002, 0.02, by = 0.005)
+number_of_generations <- 10
+mutations_per_cell <- seq(100, 400, by = 100)
+
+parameters_grid <- expand.grid(NO_GENERATIONS = number_of_generations, 
+            ONCOGENES_PERCENT = oncogene_percent, 
+            NO_GENOME_MUT_PER_GEN = mutations_per_cell,
+            EXOME_SIZE = EXOME_SIZE,
+            GENOME_SIZE = GENOME_SIZE,
+            iterations = iterations)
+
+parameters_grid$ID <- 1:nrow(parameters_grid)
+
+parametrs_list <- lapply(split(parameters_grid,parameters_grid$ID), as.list)
+
+
+results_parallel <- parLapply(cl, parametrs_list, run_simulation)
 
 # 35 is the number of divisions of a newborn
 
-sampling_res <- lapply(c(10,25,50,75,100,125,150,200,250,300), function(mut_per_division){
+
+
+sampling_number_of_mutations <- lapply(c(100,150,200,250,300), function(mut_per_division){
   bootstrapped <- sapply(1:100, function(i){
     
     if (i %% 50 == 0 ) print(paste0("I: ", i, "Mut.per.div: ", mut_per_division))
@@ -111,6 +143,7 @@ sampling_res <- lapply(c(10,25,50,75,100,125,150,200,250,300), function(mut_per_
   })
   
   data.frame(t(bootstrapped))
+  
 }) %>% do.call(rbind, .)
 
 ggplot(sampling_res, aes(x =  mut_per_division, y = `Min.`, group = mut_per_division)) + 
@@ -123,34 +156,4 @@ cat(paste0("Divisions until the first mutation: median = ", median(bootstrapped[
            ", ", quantile(bootstrapped["Min.",], 0.975), "]"))
 
 
-
-get_error_var <- function(size = 1000*2^4, sd = .015) {rnorm(size, 0, sd)}
-did_happened <- function(size = 1000*2^4) {sample(c(0,1), size, replace = T)}
-first <- 0.25 + get_error_var()
-second <- first * 1/(did_happened()+1) + get_error_var()
-third <- second * 1/(did_happened()+1) + get_error_var()
-
-hist(third, breaks = 100)
-
-my_error_var <- 0.025
-first <-  0.25 + get_error_var(sd = my_error_var)
-second <- 0.125 + get_error_var(sd = my_error_var)
-third <-  0.0625 + get_error_var(sd = my_error_var)
-fourth <-  0.03125 + get_error_var(sd = my_error_var)
-divisions_data <- rbind(
-  data.frame(division = "first", percent = first),
-  data.frame(division = "second", percent =  second),
-  data.frame(division = "third", percent = third),
-  data.frame(division = "fourth", percent = fourth)
-)
-
-stack <- ggplot(divisions_data, aes(x = percent)) + 
-  geom_density(position = "stack", alpha = .25) + theme_minimal()
-dodge <- ggplot(divisions_data, aes(x = percent, fill = division)) + 
-  geom_density(position = "dodge", alpha = .25) + 
-  geom_vline(xintercept = c(0.25,0.125, 0.0625, 0.03125), linetype = "dotted") + 
-  theme_minimal() +
-  theme(legend.position = "bottom") 
-
-grid.arrange(stack, dodge, nrow=2, heights=c(4, 5))
 
